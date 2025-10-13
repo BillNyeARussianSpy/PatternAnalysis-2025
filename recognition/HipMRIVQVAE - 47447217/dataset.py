@@ -46,7 +46,6 @@ def _fit_to_canvas(img, out_h, out_w, mode="pad_or_crop", pad_value=0):
     return res
 
 def _to_channels(x2d, dtype):
-    # your project’s helper; fallback simple 1-channel if not available
     try:
         from utils import to_channels
         return to_channels(x2d, dtype=dtype)
@@ -144,7 +143,6 @@ def list_paths(root: Path) -> dict:
         dict
             dictionary with imgs and segmentation
     """
-    print(root / "keras_slice_train")
     splits = {
         "train" : {
             "imgs" : sorted((root / "keras_slices_train").rglob("*.nii.gz")),
@@ -208,28 +206,3 @@ def align_by_name(imgs, segs) -> list:
         )
     return [img_map[k] for k in common], [seg_map[k] for k in common]
 
-# Actual ingestion
-
-ROOT = Path("../../../keras_slices_data")
-
-# gather file paths
-splits = list_paths(ROOT)
-
-# segmentation: aligning pairs per split
-train_imgs, train_segs = align_by_name(splits["train"]["imgs"], splits["train"]["segs"])
-test_imgs, test_segs = align_by_name(splits["test"]["imgs"], splits["test"]["segs"])
-validate_imgs, validate_segs = align_by_name(splits["validate"]["imgs"], splits["validate"]["segs"])
-#DEBUG: WORKS!
-
-
-# preprocess with shakes function
-# images
-X_train, train_aff = load_data_2D([str(p) for p in train_imgs], normImage=True, categorical=False, getAffines=True, early_stop= True, target_size=(256, 144), fit_mode="pad_or_crop")
-X_test, test_aff = load_data_2D([str(p) for p in test_imgs], normImage=True, categorical=False, getAffines=True, early_stop= True, target_size=(256, 144), fit_mode="pad_or_crop")
-X_val, val_aff = load_data_2D([str(p) for p in validate_imgs], normImage=True, categorical=False, getAffines=True, early_stop= True, target_size=(256, 144), fit_mode="pad_or_crop")
-
-Y_train = load_data_2D([str(p) for p in train_segs], normImage=False, categorical=False, early_stop= True, target_size=(256, 144), fit_mode="pad_or_crop")
-Y_train = load_data_2D([str(p) for p in train_segs], normImage=False, categorical=False, early_stop= True, target_size=(256, 144), fit_mode="pad_or_crop")
-Y_val = load_data_2D([str(p) for p in validate_segs], normImage=False, categorical=False, early_stop= True, target_size=(256, 144), fit_mode="pad_or_crop")
-
-#TODO: Play around with what I need (check spec sheet)

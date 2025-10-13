@@ -1,1 +1,186 @@
-#VQVAE Implementation
+#VQVAE
+
+import torch
+import torch.nn as nn
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as numpy
+from models.residual import ResidualStack
+
+
+class VQVAE(nn.Module):
+    """
+    Shim around existing modules:
+    x -> Encoder -> 1x1 Conv -> VectorQuantizer -> Decoder -> x_hat
+    """
+    
+    def __init__(
+        self,
+        h_dim=128,
+        res_h_dim=32,
+        n_res_layers=2,
+        n_embeddings=512,
+        embedding_dim=64,
+        beta=0.25,
+        in_channels=1,
+        out_channels=1
+    ):
+        super.__init__()
+        self.encoder = Encoder(in_channels, h_dim, n_res_layers, res_h_dim)
+        self.pre_quant = nn.Conv2d(h_dim, embedding_dim, kernel_size=1, stride=1)
+        self.quantizer = VectorQuantizer(n_embeddings, embedding_dim, beta)
+        self.decoder = Decoder(embedding_dim, h_dim, n_res_layers, res_h_dim)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#----------------FROM OLDER VQVAE-------------------------
+class Encoder(nn.Module):
+    """
+    This is the q_theta (z|x) network. Given a data sample x q_theta 
+    maps to the latent space x -> z.
+
+    For a VQ VAE, q_theta outputs parameters of a categorical distribution.
+
+    Inputs:
+    - in_dim : the input dimension
+    - h_dim : the hidden layer dimension
+    - res_h_dim : the hidden dimension of the residual block
+    - n_res_layers : number of layers to stack
+
+    """
+
+    def __init__(self, in_dim, h_dim, n_res_layers, res_h_dim):
+        super(Encoder, self).__init__()
+        kernel = 4
+        stride = 2
+        self.conv_stack = nn.Sequential(
+            nn.Conv2d(in_dim, h_dim // 2, kernel_size=kernel,
+                      stride=stride, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(h_dim // 2, h_dim, kernel_size=kernel,
+                      stride=stride, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(h_dim, h_dim, kernel_size=kernel-1,
+                      stride=stride-1, padding=1),
+            ResidualStack(
+                h_dim, h_dim, res_h_dim, n_res_layers)
+
+        )
+
+    def forward(self, x):
+        return self.conv_stack(x)
+    
+    
+class VectorQuantizer(nn.Module):
+    """
+    Discretization bottleneck part of the VQ-VAE.
+
+    Inputs:
+    - n_e : number of embeddings
+    - e_dim : dimension of embedding
+    - beta : commitment cost used in loss term, beta * ||z_e(x)-sg[e]||^2
+    """
+
+    def __init__(self, n_e, e_dim, beta):
+        super(VectorQuantizer, self).__init__()
+        self.n_e = n_e
+        self.e_dim = e_dim
+        self.beta = beta
+
+        self.embedding = nn.Embedding(self.n_e, self.e_dim)
+        self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
+
+    def forward(self, z):
+        """
+        Inputs the output of the encoder network z and maps it to a discrete 
+        one-hot vector that is the index of the closest embedding vector e_j
+
+        z (continuous) -> z_q (discrete)
+
+        z.shape = (batch, channel, height, width)
+
+        quantization pipeline:
+
+            1. get encoder input (B,C,H,W)
+            2. flatten input to (B*H*W,C)
+
+        """
+        # reshape z -> (batch, height, width, channel) and flatten
+        z = z.permute(0, 2, 3, 1).contiguous()
+        z_flattened = z.view(-1, self.e_dim)
+        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
+
+        d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
+            torch.sum(self.embedding.weight**2, dim=1) - 2 * \
+            torch.matmul(z_flattened, self.embedding.weight.t())
+
+        # find closest encodings
+        min_encoding_indices = torch.argmin(d, dim=1).unsqueeze(1)
+        min_encodings = torch.zeros(
+            min_encoding_indices.shape[0], self.n_e).to(device)
+        min_encodings.scatter_(1, min_encoding_indices, 1)
+
+        # get quantized latent vectors
+        z_q = torch.matmul(min_encodings, self.embedding.weight).view(z.shape)
+
+        # compute loss for embedding
+        loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
+            torch.mean((z_q - z.detach()) ** 2)
+
+        # preserve gradients
+        z_q = z + (z_q - z).detach()
+
+        # perplexity
+        e_mean = torch.mean(min_encodings, dim=0)
+        perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-10)))
+
+        # reshape back to match original input shape
+        z_q = z_q.permute(0, 3, 1, 2).contiguous()
+
+        return loss, z_q, perplexity, min_encodings, min_encoding_indices
+
+
+class Decoder(nn.Module):
+    """
+    This is the p_phi (x|z) network. Given a latent sample z p_phi 
+    maps back to the original space z -> x.
+
+    Inputs:
+    - in_dim : the input dimension
+    - h_dim : the hidden layer dimension
+    - res_h_dim : the hidden dimension of the residual block
+    - n_res_layers : number of layers to stack
+
+    """
+
+    def __init__(self, in_dim, h_dim, n_res_layers, res_h_dim):
+        super(Decoder, self).__init__()
+        kernel = 4
+        stride = 2
+
+        self.inverse_conv_stack = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_dim, h_dim, kernel_size=kernel-1, stride=stride-1, padding=1),
+            ResidualStack(h_dim, h_dim, res_h_dim, n_res_layers),
+            nn.ConvTranspose2d(h_dim, h_dim // 2,
+                               kernel_size=kernel, stride=stride, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(h_dim//2, 3, kernel_size=kernel,
+                               stride=stride, padding=1)
+        )
+
+    def forward(self, x):
+        return self.inverse_conv_stack(x)
