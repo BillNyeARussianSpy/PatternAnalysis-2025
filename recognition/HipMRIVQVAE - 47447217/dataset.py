@@ -68,13 +68,15 @@ def load_data_2D (imageNames, normImage=False, categorical=False, dtype=np.float
 
 
 # Data ingestion pipeline
+
 from pathlib import Path
 
-ROOT = Path("keras_slices_data") # root folder
+# ---------------- Helpers ----------------
+
 
 def list_paths(root: Path) -> dict:
     """
-    Collect nii.gz files for each split
+    Collect nii.gz file paths for each split
     args:
         root::Path
             parent folder location
@@ -82,21 +84,29 @@ def list_paths(root: Path) -> dict:
         dict
             dictionary with imgs and segmentation
     """
+    print(root / "keras_slice_train")
     splits = {
         "train" : {
-            "imgs" : sorted((root / "kera_slices_train").rglob("*.nii.gz")),
+            "imgs" : sorted((root / "keras_slices_train").rglob("*.nii.gz")),
             "segs" : sorted((root / "keras_slices_seg_train").rglob("*nii.gz")),
         },
         "test" : {
-            "imgs" : sorted((root / "kera_slices_test").rglob("*.nii.gz")),
+            "imgs" : sorted((root / "keras_slices_test").rglob("*.nii.gz")),
             "segs" : sorted((root / "keras_slices_seg_test").rglob("*nii.gz")),
         },
-        "val" : {
-            "imgs" : sorted((root / "kera_slices_val").rglob("*.nii.gz")),
-            "segs" : sorted((root / "keras_slices_seg_val").rglob("*nii.gz")),
+        "validate" : {
+            "imgs" : sorted((root / "keras_slices_validate").rglob("*.nii.gz")),
+            "segs" : sorted((root / "keras_slices_seg_validate").rglob("*nii.gz")),
         },
     }
     return splits
+
+def normalise_name(p: Path):
+    """Extract comparable key for matching images and segmentations."""
+    base = p.stem.replace(".nii", "")  # remove .nii if double suffix
+    # remove prefix like 'case_' or 'seg_'
+    base = base.replace("case_", "").replace("seg_", "")
+    return base
 
 def align_by_name(imgs, segs) -> list:
     """
@@ -112,13 +122,14 @@ def align_by_name(imgs, segs) -> list:
         segs:list
             list of segmentations matched with images
     """
-    # key for similar ordering of imgs & segs
-    key = lambda p : p.stem.replace(".nii", "") if p.suffic == ".gz" else p.stem
     # build a map w/ key
-    img_map = {key(p): p for p in imgs}
-    seg_map = {key(p): p for p in segs}
+    img_map = {normalise_name(p): p for p in imgs}
+    seg_map = {normalise_name(p): p for p in segs}
+    
     # sort
     common = sorted(set(img_map) & set(seg_map))
+    if not common:
+        raise ValueError("No matching image/segmentation pairs found!")
     # debug: in case there are missing imgs/segs
     missing_imgs = sorted(set(seg_map) - set(img_map))
     missing_segs = sorted(set(img_map) - set(seg_map))
@@ -128,3 +139,27 @@ def align_by_name(imgs, segs) -> list:
             f"Unpaired files: missing_imgs = {missing_imgs[:5]} missing_segs = {missing_segs[:5]}"
         )
     return [img_map[k] for k in common], [seg_map[k] for k in common]
+
+# Actual ingestion
+
+ROOT = Path("../../../keras_slices_data")
+
+# gather file paths
+splits = list_paths(ROOT)
+
+# segmentation: aligning pairs per split
+train_imgs, train_segs = align_by_name(splits["train"]["imgs"], splits["train"]["segs"])
+test_imgs, test_segs = align_by_name(splits["test"]["imgs"], splits["test"]["segs"])
+validate_imgs, validate_segs = align_by_name(splits["validate"]["imgs"], splits["validate"]["segs"])
+#DEBUG: WORKS!
+
+
+# preprocess with shakes function
+# images
+X_train, train_aff = load_data_2D([str(p) for p in train_imgs], normImage=True, categorical=False, getAffines=True)
+X_test, test_aff = load_data_2D([str(p) for p in test_imgs], normImage=True, categorical=False, getAffines=True)
+X_val, val_aff = load_data_2D([str(p) for p in val_imgs], normImage=True, categorical=False, getAffines=True)
+
+Y_train = load_data_2D([str(p) for p in train_segs], normImage=False, categorical=False)
+Y_train = load_data_2D([str(p) for p in train_segs], normImage=False, categorical=False)
+Y_val = load_data_2D([str(p) for p in val_segs], normImage=False, categorical=False)
