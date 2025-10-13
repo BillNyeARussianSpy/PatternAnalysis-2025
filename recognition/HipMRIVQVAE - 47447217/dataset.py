@@ -101,10 +101,18 @@ def list_paths(root: Path) -> dict:
     }
     return splits
 
-def normalise_name(p: Path):
-    """Extract comparable key for matching images and segmentations."""
+def normalise_name(p: Path) -> str:
+    """
+    Extract comparable key for matching images and segmentations
+    args:
+        p:Path
+            path for file
+    returns:
+        base:str
+            normalised filename
+    """
     base = p.stem.replace(".nii", "")  # remove .nii if double suffix
-    # remove prefix like 'case_' or 'seg_'
+    # remove prefix -> either 'case_' or 'seg_'
     base = base.replace("case_", "").replace("seg_", "")
     return base
 
@@ -163,3 +171,5 @@ X_val, val_aff = load_data_2D([str(p) for p in val_imgs], normImage=True, catego
 Y_train = load_data_2D([str(p) for p in train_segs], normImage=False, categorical=False)
 Y_train = load_data_2D([str(p) for p in train_segs], normImage=False, categorical=False)
 Y_val = load_data_2D([str(p) for p in val_segs], normImage=False, categorical=False)
+
+#TODO: Play around with what I need (check spec sheet)
