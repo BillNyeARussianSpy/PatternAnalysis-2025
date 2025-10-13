@@ -16,81 +16,48 @@ def to_channels ( arr : np . ndarray , dtype = np . uint8 ) -> np . ndarray :
 
 # 3D image loader (from Shakes)
 
-def load_data_3D(imageNames, normImage=False, categorical=False, dtype=np.float32,
-                 getAffines=False, orient=False, early_stop=False):
-    """
-    Load medical image data from a list of file names into a NumPy array.
+# load medical image functions
+def load_data_2D(imageNames, normImage=False, categorical=False, dtype=np.float32,
+                 getAffines=False, early_stop=False):
+    '''
+    Load medical image data from names, cases list provided into a list for each.
 
-    This function pre-allocates 5D arrays for conv3d to avoid excessive memory usage.
+    This function pre-allocates 4D arrays for conv2d to avoid excessive memory usage.
 
-    Parameters:
-        imageNames : list
-            List of image file paths (.nii or .nii.gz).
-        normImage : bool
-            Normalize the image to mean 0 and std 1 if True.
-        categorical : bool
-            Convert images to one-hot channel format if True.
-        dtype : type
-            Data type of the output array (e.g., np.float32 or np.uint8).
-        getAffines : bool
-            Return affine matrices for each image if True.
-        orient : bool
-            Apply orientation and resampling for anisotropic images.
-        early_stop : bool
-            Stop loading early for quick testing.
-
-    Returns:
-        images : np.ndarray
-            Loaded image data in 4D or 5D format (num, rows, cols, depth[, channels]).
-        affines : list (optional)
-            List of affine matrices, if getAffines=True.
-    """
+    normImage : bool (normalise the image 0.0–1.0)
+    early_stop : Stop loading pre-maturely, leaves arrays mostly empty, for quick loading and testing scripts.
+    '''
     affines = []
-    
-    interp = 'linear'
-    if dtype == np.uint8:
-        interp = 'nearest'  # assume labels
 
+    # get fixed size
     num = len(imageNames)
-    niftiImage = nib.load(imageNames[0])
-
-    if orient:
-        niftiImage = im.applyOrientation(niftiImage, interpolation=interp, scale=1)
-
-    first_case = niftiImage.get_fdata(caching='unchanged')
-    if len(first_case.shape) == 4:
-        first_case = first_case[:, :, :, 0]  # remove extra dimension
-
+    first_case = nib.load(imageNames[0]).get_fdata(caching='unchanged')
+    if len(first_case.shape) == 3:
+        first_case = first_case[:, :, 0]  # sometimes extra dims, remove
     if categorical:
         first_case = to_channels(first_case, dtype=dtype)
-        rows, cols, depth, channels = first_case.shape
-        images = np.zeros((num, rows, cols, depth, channels), dtype=dtype)
+        rows, cols, channels = first_case.shape
+        images = np.zeros((num, rows, cols, channels), dtype=dtype)
     else:
-        rows, cols, depth = first_case.shape
-        images = np.zeros((num, rows, cols, depth), dtype=dtype)
+        rows, cols = first_case.shape
+        images = np.zeros((num, rows, cols), dtype=dtype)
 
     for i, inName in enumerate(tqdm(imageNames)):
         niftiImage = nib.load(inName)
-        if orient:
-            niftiImage = im.applyOrientation(niftiImage, interpolation=interp, scale=1)
-
-        inImage = niftiImage.get_fdata(caching='unchanged')
+        inImage = niftiImage.get_fdata(caching='unchanged')  # read disk only
         affine = niftiImage.affine
-
-        if len(inImage.shape) == 4:
-            inImage = inImage[:, :, :, 0]
-
-        inImage = inImage[:, :, :depth]
+        if len(inImage.shape) == 3:
+            inImage = inImage[:, :, 0]  # sometimes extra dims in HipMRI_study data
         inImage = inImage.astype(dtype)
-
         if normImage:
+            # inImage = inImage / np.linalg.norm(inImage)
+            # inImage = 255. * inImage / inImage.max()
             inImage = (inImage - inImage.mean()) / inImage.std()
-
         if categorical:
             inImage = utils.to_channels(inImage, dtype=dtype)
-            images[i, :inImage.shape[0], :inImage.shape[1], :inImage.shape[2], :inImage.shape[3]] = inImage
+            images[i, :, :, :] = inImage
         else:
-            images[i, :inImage.shape[0], :inImage.shape[1], :inImage.shape[2]] = inImage
+            images[i, :, :] = inImage
 
         affines.append(affine)
         if i > 20 and early_stop:
@@ -100,7 +67,3 @@ def load_data_3D(imageNames, normImage=False, categorical=False, dtype=np.float3
         return images, affines
     else:
         return images
-
-
-# load our dataset in:
-filepath
