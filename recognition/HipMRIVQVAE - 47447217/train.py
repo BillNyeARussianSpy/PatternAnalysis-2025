@@ -2,13 +2,14 @@ from dataset import *
 from modules import *
 
 
-# Data Ingestion
+#----------- Data Ingestion -----------------
 
-
+# File Root Path
 ROOT = Path("../../../keras_slices_data")
 
 # gather file paths
 splits = list_paths(ROOT)
+print(splits)
 
 # segmentation: aligning pairs per split
 train_imgs, train_segs = align_by_name(splits["train"]["imgs"], splits["train"]["segs"])
