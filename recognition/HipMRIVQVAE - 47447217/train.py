@@ -4,7 +4,12 @@ from modules import *
 
 # Actual ingestion
 
-ROOT = Path("../../../keras_slices_data")
+
+#Launch from folder C:\Users\james\Desktop\COMP3710\PatternAnalysis-2025>
+#py '.\recognition\HipMRIVQVAE - 47447217\train.py'
+
+
+ROOT = Path("../keras_slices_data")
 
 # gather file paths
 splits = list_paths(ROOT)

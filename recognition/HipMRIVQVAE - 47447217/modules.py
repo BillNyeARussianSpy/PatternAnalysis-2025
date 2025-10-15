@@ -15,14 +15,14 @@ class VQVAE(nn.Module):
     
     def __init__(
         self,
-        h_dim=128,
-        res_h_dim=32,
-        n_res_layers=2,
-        n_embeddings=512,
-        embedding_dim=64,
-        beta=0.25,
-        in_channels=1,
-        out_channels=1
+        h_dim=128,          # hidden chanels in encoder/decoder
+        res_h_dim=32,       # residual block channels
+        n_res_layers=2,     # residual depth
+        n_embeddings=512,   # codebook size
+        embedding_dim=64,   # z_e / z_q channels
+        beta=0.25,          # commitment weight
+        in_channels=1,      # 1 for Slices
+        out_channels=1      # 1 for slices
     ):
         super.__init__()
         self.encoder = Encoder(in_channels, h_dim, n_res_layers, res_h_dim)
@@ -30,18 +30,27 @@ class VQVAE(nn.Module):
         self.quantizer = VectorQuantizer(n_embeddings, embedding_dim, beta)
         self.decoder = Decoder(embedding_dim, h_dim, n_res_layers, res_h_dim)
 
-
-
-
-
-
-
-
-
-
-
-
-
+        #Ensure decoder outputs out_channels (i.e. 1 instead of 3):
+        *pre, last = list(self.decoder.inverse_conv_stack)
+        if isinstance(last, nn.ConvTranspose2d) and last.out_channels != out_channels:
+            new_last = nn.ConvTranspose2d(
+                    in_channels=last.in_channels,
+                    out_channels=out_channels,
+                    kernel_size=last.kernel_size,
+                    stride=last.stride,
+                    padding=last.padding,
+                    output_padding=last.output_padding,
+                    dilation=last.dilation,
+                    bias=(last.bias is not None)
+                )
+            self.decoder.inverse_conv_stack = nn.Sequential(*pre, new_last)
+        
+    def forward(self, x):
+        z_e = self.encoder(x)
+        z_e = self.pre_quant(z_e)
+        emb_loss, z_q, perplexity, _, _ = self.quantizer(z_e)
+        x_hat = self.decoder(z_q)
+        return emb_loss, x_hat, perplexity
 
 
 #----------------FROM OLDER VQVAE-------------------------
