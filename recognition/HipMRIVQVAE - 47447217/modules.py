@@ -24,7 +24,7 @@ class VQVAE(nn.Module):
         in_channels=1,      # 1 for Slices
         out_channels=1      # 1 for slices
     ):
-        super.__init__()
+        super().__init__()
         self.encoder = Encoder(in_channels, h_dim, n_res_layers, res_h_dim)
         self.pre_quant = nn.Conv2d(h_dim, embedding_dim, kernel_size=1, stride=1)
         self.quantizer = VectorQuantizer(n_embeddings, embedding_dim, beta)
