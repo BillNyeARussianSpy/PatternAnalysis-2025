@@ -14,12 +14,14 @@ from modules import *
 
 # Actual ingestion
 
-
 #Launch from folder C:\Users\james\Desktop\COMP3710\PatternAnalysis-2025>
 #py '.\recognition\HipMRIVQVAE - 47447217\train.py'
 
 
 ROOT = Path("../keras_slices_data")
+
+# CUDA
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # gather file paths
 splits = list_paths(ROOT)
@@ -71,7 +73,6 @@ def make_loader(x_np, batch_size=16, shuffle=False, num_workers=0) -> DataLoader
     
     
 def main():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # output directories
     out_dir = Path("runs/vqvae")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -82,7 +83,7 @@ def main():
         # If wrong, use load_data_2D with target_size/fitting"
     
     
-    # train + test dataloaders
+    # train + vak dataloaders
     train_loader = make_loader(X_train, batch_size=32, shuffle = True, num_workers=0)
     val_loader = make_loader(X_val, batch_size=32, shuffle = True, num_workers=0)
 
@@ -100,8 +101,74 @@ def main():
     mse = nn.MSELoss(reduction="mean")
     
     def run_epoch(loader, train=True):
+        """
+        Run epoch in training loop
+        """
         model.train(mode=train)
-        
+        total_loss = total_recon = total_pp = 0.0
+        n_batches = 0
+        for xb, _ in loader:
+            # set up loader for training
+            xb = xb.to(device, non_blocking=True)
+            if train: opt.zero_grad(set_to_none=True)
+            emb_loss, x_hat, ppx = model(xb)
+            recon = mse(x_hat, xb) / max(x_train_var, 1e-8)
+            loss = recon + emb_loss
+            if train:
+                loss.backward()
+                torch.nn.utils.clip_grad_norm(model.parameters(), 1.0)
+                opt.step()
+            # loss calculation
+            total_loss = loss.item()
+            total_recon += recon.item()
+            total_pp += float(ppx.item())
+            n_batches += 1
+        return total_loss / n_batches, total_recon / n_batches, total_pp / n_batches
+    
+    # training hyperparameters
+    best_val = float("inf")
+    steps = 5000
+    log_every = 50
+    save_every = 500
+
+    # training loop with debug printing
+    for step in range(1, steps + 1):
+        tr_loss, tr_recon, tr_pp = run_epoch(train_loader, train=True)
+        if step % log_every == 0:
+            va_loss, va_recon, va_pp = run_epoch(val_loader, train=False)
+            print(f"[{step:5d}] train loss {tr_loss:.4f} | recon {tr_recon:.4f} | ppx {tr_pp:.2f}  "
+                  f"|| val loss {va_loss:.4f} | recon {va_recon:.4f} | ppx {va_pp:.2f}")
+            # save model for progress
+            if va_loss < best_val:
+                best_val = va_loss
+                torch.save({
+                    "model": model.state_dict(),
+                    "hp": dict(h_dim=128, res_h_dim=32, n_res_layers=2,
+                               n_embeddings=512, embedding_dim=64, beta=0.25),
+                    "step": step
+                }, out_dir / "best.pt")
+
+        if step % save_every == 0:
+            # write a small batch of reconstructions as NIfTI using original affines
+            model.eval()
+            xb, _ = next(iter(val_loader))
+            xb = xb.to(device)
+            with torch.no_grad():
+                _, xh, _ = model(xb)
+            xh = xh.cpu().numpy()       # (N,1,H,W)
+            xb = xb.cpu().numpy()
+            N = min(len(xh), 4)
+            for i in range(N):
+                recon_2d = xh[i, 0]  # (H,W)
+                input_2d = xb[i, 0]
+                # scale back to float32; values are z-score-ish so safe to save as-is
+                affine = val_aff[i] if i < len(val_aff) else np.eye(4)
+                nib.save(nib.Nifti1Image(recon_2d.astype(np.float32), affine),
+                         str(out_dir / f"recon_step{step}_idx{i}.nii.gz"))
+                nib.save(nib.Nifti1Image(input_2d.astype(np.float32), affine),
+                         str(out_dir / f"input_step{step}_idx{i}.nii.gz"))
+
+    print("Training complete. Best val loss:", best_val)
 
 if __name__ == "__main__":
     main()

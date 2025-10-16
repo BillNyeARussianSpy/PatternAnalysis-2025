@@ -14,12 +14,18 @@ def _ensure_2d(arr):
         raise ValueError(f"Unexpected image ndim={arr.ndim}, shape={arr.shape}")
 
 def _center_crop(img, out_h, out_w):
+    """
+    Crop image H & W from center
+    """
     h, w = img.shape
     y0 = max((h - out_h) // 2, 0)
     x0 = max((w - out_w) // 2, 0)
     return img[y0:y0 + out_h, x0:x0 + out_w]
 
 def _pad_to(img, out_h, out_w, pad_value=0):
+    """
+    Padding with specified width/height
+    """
     h, w = img.shape
     pad_y = max(out_h - h, 0)
     pad_x = max(out_w - w, 0)
@@ -131,8 +137,6 @@ def load_data_2D(
 from pathlib import Path
 
 # ---------------- Helpers ----------------
-
-
 def list_paths(root: Path) -> dict:
     """
     Collect nii.gz file paths for each split

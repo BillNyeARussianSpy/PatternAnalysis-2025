@@ -6,6 +6,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as numpy
 
+# CUDA
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class VQVAE(nn.Module):
     """
