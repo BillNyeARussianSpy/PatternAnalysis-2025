@@ -196,7 +196,7 @@ class Decoder(nn.Module):
         return self.inverse_conv_stack(x)
     
 
-#ResidualStack
+
 class ResidualLayer(nn.Module):
     """
     One residual layer inputs:

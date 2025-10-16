@@ -10,8 +10,6 @@ import nibabel as nib
 from dataset import *
 from modules import *
 
-
-
 # Actual ingestion
 
 #Launch from folder C:\Users\james\Desktop\COMP3710\PatternAnalysis-2025>
@@ -33,7 +31,7 @@ validate_imgs, validate_segs = align_by_name(splits["validate"]["imgs"], splits[
 
 
 # preprocess with shakes function
-# images
+# X Values
 X_train, train_aff = load_data_2D([str(p) for p in train_imgs], normImage=True, categorical=False, getAffines=True, early_stop= True, target_size=(256, 144), fit_mode="pad_or_crop")
 X_test, test_aff = load_data_2D([str(p) for p in test_imgs], normImage=True, categorical=False, getAffines=True, early_stop= True, target_size=(256, 144), fit_mode="pad_or_crop")
 X_val, val_aff = load_data_2D([str(p) for p in validate_imgs], normImage=True, categorical=False, getAffines=True, early_stop= True, target_size=(256, 144), fit_mode="pad_or_crop")
@@ -125,50 +123,82 @@ def main():
             n_batches += 1
         return total_loss / n_batches, total_recon / n_batches, total_pp / n_batches
     
-    # training hyperparameters
+    epochs = 10          # start small; bump later
+    log_every = 1        # print every epoch
+    save_every = 2
     best_val = float("inf")
-    steps = 5000
-    log_every = 50
-    save_every = 500
 
-    # training loop with debug printing
-    for step in range(1, steps + 1):
-        tr_loss, tr_recon, tr_pp = run_epoch(train_loader, train=True)
-        if step % log_every == 0:
-            va_loss, va_recon, va_pp = run_epoch(val_loader, train=False)
-            print(f"[{step:5d}] train loss {tr_loss:.4f} | recon {tr_recon:.4f} | ppx {tr_pp:.2f}  "
-                  f"|| val loss {va_loss:.4f} | recon {va_recon:.4f} | ppx {va_pp:.2f}")
-            # save model for progress
-            if va_loss < best_val:
-                best_val = va_loss
-                torch.save({
-                    "model": model.state_dict(),
-                    "hp": dict(h_dim=128, res_h_dim=32, n_res_layers=2,
-                               n_embeddings=512, embedding_dim=64, beta=0.25),
-                    "step": step
-                }, out_dir / "best.pt")
+    print(f"Device: {device} | train batches: {len(train_loader)} | val batches: {len(val_loader)}")
 
-        if step % save_every == 0:
-            # write a small batch of reconstructions as NIfTI using original affines
-            model.eval()
+    for epoch in range(1, epochs + 1):
+        # training
+        model.train()
+        tr_loss = tr_recon = tr_pp = 0.0
+        for bi, (xb, _) in enumerate(train_loader, 1):
+            xb = xb.to(device, non_blocking=True)
+            opt.zero_grad(set_to_none=True)
+            emb_loss, x_hat, ppx = model(xb)
+            recon = torch.mean((x_hat - xb) ** 2) / max(x_train_var, 1e-8)
+            loss = recon + emb_loss
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
+
+            # loss
+            tr_loss  += loss.item()
+            tr_recon += recon.item()
+            tr_pp    += float(ppx.item())
+
+            if bi % 50 == 0 or bi == len(train_loader):
+                print(f"  epoch {epoch} | batch {bi}/{len(train_loader)} "
+                    f"loss {loss.item():.4f} recon {recon.item():.4f} ppx {float(ppx):.2f}", flush=True)
+
+        tr_loss  /= len(train_loader)
+        tr_recon /= len(train_loader)
+        tr_pp    /= len(train_loader)
+
+        # validation
+        model.eval()
+        va_loss = va_recon = va_pp = 0.0
+        with torch.no_grad():
+            for xb, _ in val_loader:
+                xb = xb.to(device, non_blocking=True)
+                emb_loss, x_hat, ppx = model(xb)
+                recon = torch.mean((x_hat - xb) ** 2) / max(x_train_var, 1e-8)
+                loss = recon + emb_loss
+                va_loss  += loss.item()
+                va_recon += recon.item()
+                va_pp    += float(ppx.item())
+        # validation loss
+        va_loss  /= len(val_loader)
+        va_recon /= len(val_loader)
+        va_pp    /= len(val_loader)
+
+        # debug printing
+        if epoch % log_every == 0:
+            print(f"[epoch {epoch:3d}] train loss {tr_loss:.4f} | recon {tr_recon:.4f} | ppx {tr_pp:.2f}  "
+                f"|| val loss {va_loss:.4f} | recon {va_recon:.4f} | ppx {va_pp:.2f}", flush=True)
+
+        if va_loss < best_val:
+            best_val = va_loss
+            torch.save({"model": model.state_dict()}, out_dir / "best.pt")
+
+        # write reconstructions for reference 
+        if epoch % save_every == 0:
             xb, _ = next(iter(val_loader))
             xb = xb.to(device)
             with torch.no_grad():
                 _, xh, _ = model(xb)
-            xh = xh.cpu().numpy()       # (N,1,H,W)
+            xh = xh.cpu().numpy()
             xb = xb.cpu().numpy()
             N = min(len(xh), 4)
             for i in range(N):
-                recon_2d = xh[i, 0]  # (H,W)
+                recon_2d = xh[i, 0]
                 input_2d = xb[i, 0]
-                # scale back to float32; values are z-score-ish so safe to save as-is
                 affine = val_aff[i] if i < len(val_aff) else np.eye(4)
-                nib.save(nib.Nifti1Image(recon_2d.astype(np.float32), affine),
-                         str(out_dir / f"recon_step{step}_idx{i}.nii.gz"))
-                nib.save(nib.Nifti1Image(input_2d.astype(np.float32), affine),
-                         str(out_dir / f"input_step{step}_idx{i}.nii.gz"))
+                nib.save(nib.Nifti1Image(recon_2d.astype(np.float32), affine), str(out_dir / f"recon_e{epoch}_i{i}.nii.gz"))
+                nib.save(nib.Nifti1Image(input_2d.astype(np.float32), affine), str(out_dir / f"input_e{epoch}_i{i}.nii.gz"))
 
-    print("Training complete. Best val loss:", best_val)
 
 if __name__ == "__main__":
     main()
