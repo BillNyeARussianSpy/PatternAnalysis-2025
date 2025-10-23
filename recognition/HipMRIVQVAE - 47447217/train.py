@@ -54,6 +54,9 @@ def _atomic_save(obj, path: Path):
     tmp.replace(path)  # atomic on POSIX
 
 def save_checkpoint(epoch, model, optimizer, results, extra_config=None, is_best=False):
+    """
+    Helper that saves a checkpoint
+    """
     state = {
         "epoch": epoch,
         "model_state": model.state_dict(),
@@ -81,6 +84,9 @@ def save_checkpoint(epoch, model, optimizer, results, extra_config=None, is_best
         _atomic_save(state, SAVE_DIR / "best.ckpt")
 
 def load_latest_checkpoint(model, optimizer):
+    """
+    Tries to load the lastest checkpoint from folder
+    """
     if LAST_CKPT.exists():
         state = torch.load(LAST_CKPT, map_location=device)
         model.load_state_dict(state["model_state"])
@@ -96,10 +102,11 @@ def _to_01_per_sample(t: torch.Tensor) -> torch.Tensor:
     t_max = t.amax(dim=(2,3), keepdim=True)
     return torch.clamp((t - t_min) / (t_max - t_min + 1e-8), 0.0, 1.0)
 
-# Dataload
+# Create list of file paths
 nii_train = [os.path.join(train_path, img) for img in os.listdir(train_path) if img.endswith(('.nii', '.nii.gz'))]
 nii_val   = [os.path.join(validate_path, img) for img in os.listdir(validate_path) if img.endswith(('.nii', '.nii.gz'))]
 
+# Load in train + validation data
 x_train = load_data_2D(nii_train, normImage=normal_image, categorical=categorical,
                        early_stop=early_stop, target_size=target_size, fit_mode=fit_mode)
 x_val   = load_data_2D(nii_val,   normImage=normal_image, categorical=categorical,
