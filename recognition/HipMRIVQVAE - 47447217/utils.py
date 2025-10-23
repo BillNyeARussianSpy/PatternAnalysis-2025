@@ -5,7 +5,7 @@ def _atomic_save(obj, path: Path):
     torch.save(obj, tmp)
     tmp.replace(path)  # atomic on POSIX
 
-def save_checkpoint(epoch, model, optimizer, results, extra_config=None, is_best=False):
+def save_checkpoint(epoch, model, optimizer, results, save_dir, extra_config=None, is_best=False):
     """
     Helper that saves a checkpoint
     """
@@ -18,7 +18,7 @@ def save_checkpoint(epoch, model, optimizer, results, extra_config=None, is_best
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
         "device": str(device),
     }
-    ckpt_path = SAVE_DIR / f"ckpt_epoch_{epoch:03d}.pt"
+    ckpt_path = save_dir / f"ckpt_epoch_{epoch:03d}.pt"
     _atomic_save(state, ckpt_path)
     _atomic_save(state, LAST_CKPT)
     # Lightweight JSON log (append-last view)
@@ -33,7 +33,7 @@ def save_checkpoint(epoch, model, optimizer, results, extra_config=None, is_best
             "time": state["time"],
         }, f, indent=2)
     if is_best:
-        _atomic_save(state, SAVE_DIR / "best.ckpt")
+        _atomic_save(state, save_dir / "best.ckpt")
 
 def load_latest_checkpoint(model, optimizer):
     """

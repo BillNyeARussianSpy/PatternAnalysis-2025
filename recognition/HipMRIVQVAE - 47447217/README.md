@@ -42,6 +42,22 @@ The idea for the VQVAE in project came from MishaLaskin, whose original code can
 https://github.com/MishaLaskin/vqvae
 Additionally, the original paper for VQVAEs can be found at https://arxiv.org/abs/1711.00937.
 
+
+## Preprocessing
+The data was split into training, validation and test sets. Split sizes were predetermined by the sizes of the provided NifTi folders. This was then passed to the loading functions in `dataset.py`. This process is described below:
+
+- Input format: NIfTI (.nii / .nii.gz) slices. Each file is loaded with NiBabel and reduced to a single 2D slice via _ensure_2d (keeps (H,W)).
+- Normalization (optional): If normImage=True, each slice is standardized per-image:
+$$
+x = x−μ/σ+1e−8 
+$$ 
+(done before padding to keep zeros near mean).
+- Sizing to canvas: Every slice is fit to a fixed target_size=(H,W) using `_fit_to_canvas`:
+    - `fit_mode="pad_or_crop"` (default): center-crop if too large, symmetric pad if too small. 
+    - pad or crop can be forced if desired.
+- Tensor shape: Output returned as (N, H, W); the training script then adds a channel → (N, 1, H, W).
+
+
 ## Training
 The training script `train.py` performs end-to-end training, validation, and checkpointing of the HipMRI VQ-VAE model. It loads 2D MRI slices (from .nii or .nii.gz files), trains the network to reconstruct them, and automatically saves progress and best models. It includes:
 - Automatic resume – continues training from the latest checkpoint (last.ckpt)
@@ -116,6 +132,11 @@ Console: per-image SSIM and mean SSIM
 Image: grid saved to --out showing originals and reconstructions with SSIM labels.
 
 ## Image Generation
+Images were generated in a panel of 8x2 (8 is the default value for `--num` in `predict.py`), where the top row is the original image from test data and the bottom row is the reconstructed image from the trained model. 
+
+The image below describes the full capability of the model to generate recognizable images with a SSIM well over 0.6 (after a full training process). 
+
+![preview_test.png](readme_images/preview_test.png)
 
 ## Dependencies
 - Python 3.x
@@ -164,3 +185,24 @@ All of the hyperparameters mentioned in the original VQ-VAE paper were copied in
 ## Data
 This model was trained from 2D HipMRI slices from CSIRO - which are found at:
 https://data.csiro.au/collection/csiro:51392v2?redirected=true
+
+## Code Structure
+#### [modules.py](modules.py)
+
+Contains the modules for the VQ-VAE, including Encoder, Decoder, VectorQuantizer and the VQ-VAE shell itself.
+
+#### [dataset.py](dataset.py)
+
+Contains functions that load the data in from NifTi folders. It contains the main load_data_2D function, which loads the 2D images to a fixed canvas size. Some helper functions aide it in this process (i.e. with fitting all images to a fixed size etc.)
+
+#### [train.py](train.py)
+
+Contains the main training loop for the project, as well as data ingestion for training and validation sets. Also contains model initialisation, epoch validation for debugging and hyperparameter definitions (at top of file). 
+
+#### [predict.py](predict.py)
+
+Contains a single function that loads test data + last model training checkpoint data from specified paths. Then calculates + outputs per image SSIM and a mean SSIM to console. Afterwards, creates a panel of `--num` images with originals and their reconstructions with SSIM values. 
+
+#### [utils.py](utils.py)
+
+Contains all utilities required to help save and load checkpoints and scaling image resolutions. 
