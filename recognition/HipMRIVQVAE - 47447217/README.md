@@ -1,4 +1,4 @@
-# VQVAE HipMRI Pattern Recognition + Recognition
+# VQVAE HipMRI Pattern Recognition + Image Generation
 
 
 ## Description
@@ -20,7 +20,7 @@ Generally, the architecture of a VQVAE is:
 Here, we see a conventional implementation. There are 3 components to take note of: an Encoder, Vector Quantizer (middle) and Decoder. These are explained in detail below.
 
 #### Encoder + Decoder
-The Encoder takes an input image x and compresses it into a smaller, latent space through downsampling by convolutional layers and batch normalization. Essentially maps an input $x -> z$ latent space. After passing image data through many downsampling layers, residual blocks recieve feature maps for refinement. 
+The Encoder takes an input image x and compresses it into a smaller, latent space through downsampling by convolutional layers and batch normalisation. Essentially maps an input $x -> z$ latent space. After passing image data through many downsampling layers, residual blocks recieve feature maps for refinement. 
 
 The Decoder does the opposite, it takes the quantized latent codes from the vector quantizer and reconstructs the MRI image, allowing the model to learn how to generate realistic hip MRI patterns (takes $z -> x$)
 
@@ -28,7 +28,9 @@ The Decoder does the opposite, it takes the quantized latent codes from the vect
 Turns encoder's continuous features into discrete codes chosen from a learning codebook (set of embedding vectors). This is a bottleneck with discrete symbols, helping the model learn a compact, reusable vocabulary of patterns (i.e. MRI textures/shapes). Essentially, it:
     - Computes distances from each latent vector to all embedding vectors and picks the nearest using a one hot index.
     - Loss is the codebook loss and it moves codes toward the encoder outputs:
-        $β ||z_e – sg(z_q)||² $ from a hyperparameter β. 
+        $β ||z_e – sg(z_q)||² $ from a hyperparameter β.
+
+During training, the embeddings are updated to more accurately represent the feature maps. 
 
 ### Residual Layer + Stack
 A ResidualLayer is single residual block that refines features without losing the original signal. It learns a small correction and adds it back to the input (x + f(x)), which stabilizes training and helps go deeper. It utilises a ReLU activation layer with a 3x3 and 1x1 convolution layer which helps the model learn detail refinements (i.e. edges and small structures). 
@@ -41,13 +43,124 @@ https://github.com/MishaLaskin/vqvae
 Additionally, the original paper for VQVAEs can be found at https://arxiv.org/abs/1711.00937.
 
 ## Training
+The training script `train.py` performs end-to-end training, validation, and checkpointing of the HipMRI VQ-VAE model. It loads 2D MRI slices (from .nii or .nii.gz files), trains the network to reconstruct them, and automatically saves progress and best models. It includes:
+- Automatic resume – continues training from the latest checkpoint (last.ckpt)
+- Atomic checkpoint saving – ensures no corruption during interruptions
+- Validation with SSIM – measures reconstruction quality using Structural Similarity Index
+- Metric logging – saves reconstruction loss, total loss, perplexity, and SSIM in JSON format
+
+The training process is described below:
+1. Load data
+    Reads NIfTI MRI slices, normalises, and reshapes them into 2D tensors.
+2. Initialize model
+    Builds the VQ-VAE with configurable hidden channels, residual layers, embedding dimension, and codebook size.
+3. Optimizer setup
+    Uses Adam with AMSGrad and optional weight decay.
+4. Training loop
+- Each epoch performs:
+    - Forward pass → compute reconstruction and embedding losses
+    - Backward pass → optimizer update
+    - Logging of reconstruction error, total loss, and codebook perplexity
+- After every epoch:
+    - Runs validation and computes SSIM
+    - Saves checkpoint (ckpt_epoch_XXX.pt)
+    - Updates best.ckpt if validation reconstruction improves
+- Resumability
+    - Automatically resumes training from checkpoints2/last.ckpt if it exists.
+
+Validation Metrics include Reconstruction loss (MSE), Preplexity and SSIM. 
+
+CLI Options:
+| Flag                   | Default                                            | Description                                            |
+| ---------------------- | -------------------------------------------------- | ------------------------------------------------------ |
+| `--batch_size`         | `16`                                               | Number of MRI slices per training batch.               |
+| `--epochs`             | `100`                                              | Number of full training epochs.                        |
+| `--learning_rate`      | `1e-4`                                             | Adam optimizer learning rate.                          |
+| `--weight_decay`       | `1e-5`                                             | Weight decay for regularization.                       |
+| `--n_hiddens`          | `512`                                              | Hidden channel width in encoder/decoder.               |
+| `--n_residual_hiddens` | `256`                                              | Hidden dimension of residual blocks.                   |
+| `--n_residual_layers`  | `16`                                               | Number of stacked residual layers.                     |
+| `--embedding_dim`      | `128`                                              | Dimension of latent embeddings (codebook entries).     |
+| `--n_embeddings`       | `1024`                                             | Size of the embedding codebook.                        |
+| `--beta`               | `0.25`                                             | Commitment loss weight for vector quantization.        |
+| `--train_path`         | `../../../keras_slices_data/keras_slices_train`    | Directory of training MRI slices (`.nii` / `.nii.gz`). |
+| `--validate_path`      | `../../../keras_slices_data/keras_slices_validate` | Directory of validation MRI slices.                    |
+| `--target_size`        | `(256, 144)`                                       | Target 2D slice size (height, width).                  |
+| `--fit_mode`           | `"pad_or_crop"`                                    | Resizing strategy for MRI slices.                      |
+| `--save_dir`           | `checkpoints2`                                     | Directory where checkpoints and logs are saved.        |
+| `--early_stop`         | `False`                                            | Stop early if training stalls (optional).              |
+| `--normal_image`       | `True`                                             | Apply image normalisation during preprocessing.        |
+
+Output: 
+Checkpoints: All completed training checkpoints (saved to `--save_dir`)
+Log: Lightweight JSON summary of the most recent metrics — includes epoch, reconstruction loss, total loss, perplexity, validation loss, and SSIM (saved to `--save_dir`).
+Console: metrics (same as log) + epoch number
+
+## Prediction
+`predict.py` runs the trained VQ-VAE on test MRI slices, computes SSIM and saves a side-by-side original vs reconstruction panel. It:
+- Loads a trained checkpoint (best.ckpt or last.ckpt)
+- Loads test NifTi files with same preproccesing used in training (size/normalisation pulled from checkpoint config). 
+- Reconstructs a random subset and computes per-image SSIM + mean SSIM. 
+- Saves a 2-row preview image: originals (top) and reconstructions (bottom).
+
+CLI options:
+| Flag         |                                        Default | Purpose                                      |
+| ------------ | ---------------------------------------------: | -------------------------------------------- |
+| `--save_dir` |                                 `checkpoints2` | Folder containing `best.ckpt` / `last.ckpt`. |
+| `--test_dir` | `../../../keras_slices_data/keras_slices_test` | Directory of test `.nii`/`.nii.gz`.          |
+| `--num`      |                                            `8` | Number of examples to preview.               |
+| `--out`      |                             `preview_test.png` | Output image file for the panel.             |
+
+Outputs:
+Console: per-image SSIM and mean SSIM
+Image: grid saved to --out showing originals and reconstructions with SSIM labels.
 
 ## Image Generation
 
+## Dependencies
+- Python 3.x
+- Pytorch
+- Torchvision
+- Nibabel
+- OpenCV
+- Pillow
+- Tqdm
+- Matplotlib
+- Scikit-Image
+- Numpy
+
 ## Reproduction
+To reproduce these results, complete the following:
+1. Clone the repository and install the latest version of all dependences (as seen above) using:
+```
+pip install -r requirements.txt
+```
 
-### Dependencies
+2. Train the VQ-VAE model on the MRI dataset using:
 
-### Justify Hyperparams
+```
+python train.py \
+  --train_path /path/to/your_dataset/train \
+  --validate_path /path/to/your_dataset/validate \
+  --save_dir your/checkpoint/folder \
+  --epochs n \
+  --batch_size n
+```
 
-## Architecture
+3. Run inference to generate and visualise reconstructions:
+```
+python predict.py \
+  --save_dir your/checkpoint/folder \
+  --test_dir /your/test/data/dir \
+  --num 8 \
+  --out your_image_name.png
+```
+
+## Hyperparameters
+The hyperparameters are specified at the top of the [`train.py`](train.py) file and are easily identifiable. These have been chosen to best fit this model and dataset hence it isn't recommended to change them. 
+
+All of the hyperparameters mentioned in the original VQ-VAE paper were copied into this project. Their suitability to the problem was then assesed with the data. Some of these hyperparameters made the codebook collapse. Essentially the model started to only use a small subset of embedding vectors, ignoring most of the codebook. Hence, hyperparameters such as norm_image (originally set to False) was changed to True and the learning rate (2e-4) were changed to 1e-4. This was done to stabilize training and improve representation diversity. Batch size was reduced to 16. β = 0.25 (commitment loss) was retained, as it balanced encoder adherence to embeddings without reducing codebook usage. 
+
+## Data
+This model was trained from 2D HipMRI slices from CSIRO - which are found at:
+https://data.csiro.au/collection/csiro:51392v2?redirected=true
