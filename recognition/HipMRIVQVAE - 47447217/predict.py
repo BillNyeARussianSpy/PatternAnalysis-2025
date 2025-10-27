@@ -21,7 +21,7 @@ def main():
     p.add_argument("--test_dir", required=False, default="../../../keras_slices_data/keras_slices_test",
                    help="Folder with test .nii/.nii.gz")
     p.add_argument("--num", type=int, default=8, help="How many examples to preview")
-    p.add_argument("--out", type=str, default="preview_test.png", help="Where to save the panel")
+    p.add_argument("--out", type=str, default="preview_test_better.png", help="Where to save the panel")
     args = p.parse_args()
 
     # load model

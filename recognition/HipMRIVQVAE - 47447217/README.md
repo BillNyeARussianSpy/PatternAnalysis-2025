@@ -15,7 +15,7 @@ A VQVAE is a generative machine learning model that aims to improve on variation
 ## Implementation
 Generally, the architecture of a VQVAE is:
 
-![VQVAE Architecture](readme_images/image-2.png)
+![VQVAE Architecture](readme_images/architecture.png)
 
 Here, we see a conventional implementation. There are 3 components to take note of: an Encoder, Vector Quantizer (middle) and Decoder. These are explained in detail below.
 
@@ -37,7 +37,7 @@ A ResidualLayer is single residual block that refines features without losing th
 
 A ResidualStack stacks these multiple ResidualLayer blocks in sequence to increase capacity, which lets the encoder/decoder model increasingly complex patterns without exploding or vanishing gradients. 
 
-#### Contributions
+### Contributions
 The idea for the VQVAE in project came from MishaLaskin, whose original code can be found here: 
 https://github.com/MishaLaskin/vqvae
 Additionally, the original paper for VQVAEs can be found at https://arxiv.org/abs/1711.00937.
@@ -136,7 +136,22 @@ Images were generated in a panel of 8x2 (8 is the default value for `--num` in `
 
 The image below describes the full capability of the model to generate recognizable images with a SSIM well over 0.6 (after a full training process). 
 
-![preview_test.png](readme_images/preview_test.png)
+![readme_images.png](readme_images/readme_images.png)
+
+
+### Metrics
+For each run, the validation SSIM and Reconstruction Error was stored per epoch. Graphs of these are below:
+
+![SSIM per epoch.png](readme_images/valSSIM.png)
+
+![reconstruction error.png](readme_images/valReconstructError.png)
+
+The trends for these graphs are similarly logarithmic.
+This run shows steady training convergence, with validation reconstruction error decreasing and SSIM increasing over epochs, indicating progressively sharper and more faithful image reconstructions.
+Run 2 converges faster and achieves a high SSIM ≈ 0.82 and lower reconstruction loss (≈ 0.036) suggesting improved model stability and feature quantization. Key to this is a plateau in both figures that starts to occur around epoch 15 - suggesting only small incremental improvements occured per epoch after this.
+Overall, this shows that the VQVAE learns consistently over time with image quality that is better than the benchmark. 
+
+**Note: Training was performed in a Google Colab Pro environment on an A100 GPU**
 
 ## Dependencies
 - Python 3.x
