@@ -17,6 +17,8 @@ Generally, the architecture of a VQVAE is:
 
 ![VQVAE Architecture](readme_images/architecture.png)
 
+Figure: Encoder compresses input into discrete latent embeddings using vector quantization, and the decoder reconstructs the input from quantized codes. The bottleneck enforces discrete representation learning.
+
 Here, we see a conventional implementation. There are 3 components to take note of: an Encoder, Vector Quantizer (middle) and Decoder. These are explained in detail below.
 
 #### Encoder + Decoder
@@ -24,11 +26,20 @@ The Encoder takes an input image x and compresses it into a smaller, latent spac
 
 The Decoder does the opposite, it takes the quantized latent codes from the vector quantizer and reconstructs the MRI image, allowing the model to learn how to generate realistic hip MRI patterns (takes $z -> x$)
 
+Formally, the model learns:
+$$
+z_e = \text{Encoder}_\theta(x), \quad 
+z_q = \text{Quantize}(z_e), \quad 
+\hat{x} = \text{Decoder}_\phi(z_q)
+$$
+where $\theta$ and $\phi$ are learnable parameters of the encoder and decoder respectively.
+
+
 #### Vector Quantizer
 Turns encoder's continuous features into discrete codes chosen from a learning codebook (set of embedding vectors). This is a bottleneck with discrete symbols, helping the model learn a compact, reusable vocabulary of patterns (i.e. MRI textures/shapes). Essentially, it:
-    - Computes distances from each latent vector to all embedding vectors and picks the nearest using a one hot index.
-    - Loss is the codebook loss and it moves codes toward the encoder outputs:
-        $β ||z_e – sg(z_q)||² $ from a hyperparameter β.
+- Computes distances from each latent vector to all embedding vectors and picks the nearest using a one hot index.
+- Loss is the codebook loss and it moves codes toward the encoder outputs:
+    $β ||z_e – sg(z_q)||² $ from a hyperparameter β.
 
 During training, the embeddings are updated to more accurately represent the feature maps. 
 
@@ -86,7 +97,26 @@ The training process is described below:
 
 Validation Metrics include Reconstruction loss (MSE), Preplexity and SSIM. 
 
-CLI Options:
+
+### Objective Function
+
+In the training phase, total loss that VQ-VAE tries to minimise combines three terms:
+$$
+\mathcal{L} = \| x - \hat{x} \|_2^2 + \| \mathrm{sg}[z_e(x)] - e \|_2^2 + \beta \| z_e(x) - \mathrm{sg}[e] \|_2^2
+$$
+
+Where:
+- $x$ = input image, $\hat{x}$ = reconstruction  
+- $z_e(x)$ = encoder output (continuous latent)  
+- $e$ = embedding vector chosen from codebook  
+- $\mathrm{sg}[\cdot]$ = stop-gradient operator (gradient does not flow)  
+- $\beta$ = commitment loss coefficient  
+
+The first term is the **reconstruction loss**, the second aligns embeddings with encoder outputs (**codebook loss**), and the third ensures the encoder commits to chosen embeddings (**commitment loss**).
+
+
+
+### CLI Options
 | Flag                   | Default                                            | Description                                            |
 | ---------------------- | -------------------------------------------------- | ------------------------------------------------------ |
 | `--batch_size`         | `16`                                               | Number of MRI slices per training batch.               |
@@ -131,10 +161,10 @@ Outputs:
 Console: per-image SSIM and mean SSIM
 Image: grid saved to --out showing originals and reconstructions with SSIM labels.
 
-## Image Generation
+## Image Generation Results
 Images were generated in a panel of 8x2 (8 is the default value for `--num` in `predict.py`), where the top row is the original image from test data and the bottom row is the reconstructed image from the trained model. 
 
-The image below describes the full capability of the model to generate recognizable images with a SSIM well over 0.6 (after a full training process). 
+The image below describes the full capability of the model to generate recognizable images with a SSIM well over 0.6 (after a full training process). Demonstrating this is an average SSIM of 0.794125 (using the images below). The test images were randomly selected according to the main code in `predict.py`.
 
 ![readme_images.png](readme_images/readme_images.png)
 
