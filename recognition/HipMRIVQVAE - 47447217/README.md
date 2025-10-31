@@ -17,14 +17,14 @@ Generally, the architecture of a VQVAE is:
 
 ![VQVAE Architecture](readme_images/architecture.png)
 
-Figure: Encoder compresses input into discrete latent embeddings using vector quantization, and the decoder reconstructs the input from quantized codes. The bottleneck enforces discrete representation learning.
+_Figure: Encoder compresses input into discrete latent embeddings using vector quantization, and the decoder reconstructs the input from quantized codes. The bottleneck enforces discrete representation learning._
 
 Here, we see a conventional implementation. There are 3 components to take note of: an Encoder, Vector Quantizer (middle) and Decoder. These are explained in detail below.
 
 #### Encoder + Decoder
 The Encoder takes an input image x and compresses it into a smaller, latent space through downsampling by convolutional layers and batch normalisation. Essentially maps an input $x -> z$ latent space. After passing image data through many downsampling layers, residual blocks recieve feature maps for refinement. 
 
-The Decoder does the opposite, it takes the quantized latent codes from the vector quantizer and reconstructs the MRI image, allowing the model to learn how to generate realistic hip MRI patterns (takes $z -> x$)
+The Decoder does the opposite, it takes the quantized latent codes from the vector quantizer and reconstructs the MRI image, allowing the model to learn how to generate realistic hip MRI patterns (takes $z → x$)
 
 Formally, the model learns:
 $$
@@ -39,7 +39,7 @@ where $\theta$ and $\phi$ are learnable parameters of the encoder and decoder re
 Turns encoder's continuous features into discrete codes chosen from a learning codebook (set of embedding vectors). This is a bottleneck with discrete symbols, helping the model learn a compact, reusable vocabulary of patterns (i.e. MRI textures/shapes). Essentially, it:
 - Computes distances from each latent vector to all embedding vectors and picks the nearest using a one hot index.
 - Loss is the codebook loss and it moves codes toward the encoder outputs:
-    $β ||z_e – sg(z_q)||² $ from a hyperparameter β.
+    $β ||z_e – sg(z_q)||² $ from the commitment loss weight hyperparameter β.
 
 During training, the embeddings are updated to more accurately represent the feature maps. 
 
@@ -167,6 +167,8 @@ Images were generated in a panel of 8x2 (8 is the default value for `--num` in `
 The image below describes the full capability of the model to generate recognizable images with a SSIM well over 0.6 (after a full training process). Demonstrating this is an average SSIM of 0.794125 (using the images below). The test images were randomly selected according to the main code in `predict.py`.
 
 ![readme_images.png](readme_images/readme_images.png)
+
+_Figure: Test Sclices and Recondstruction Image Panel taken from Epoch 30_
 
 
 ### Metrics

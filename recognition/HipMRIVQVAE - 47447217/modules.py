@@ -56,7 +56,7 @@ class VQVAE(nn.Module):
         return emb_loss, x_hat, perplexity
 
 
-#----------------FROM OLDER VQVAE-------------------------
+# Modules
 class Encoder(nn.Module):
     """
     This is the q_theta (z|x) network. Given a data sample x q_theta 
